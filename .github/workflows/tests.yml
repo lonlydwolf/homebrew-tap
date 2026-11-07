@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch: # re-check by hand, e.g. after the update job's commit (which doesn't start workflows)
 
 permissions:
   contents: read
