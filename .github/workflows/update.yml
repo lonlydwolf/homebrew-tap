@@ -1,0 +1,63 @@
+name: Update casks
+
+# Daily, or by hand: pick up a new Animetro release, verify it and update the cask.
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write # commit the updated cask
+
+concurrency:
+  group: update-casks
+  cancel-in-progress: false
+
+jobs:
+  animetro:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check for a newer release
+        id: check
+        run: |
+          tag=$(gh release view -R lonlydwolf/animetro --json tagName --jq .tagName)
+          latest=${tag#v}
+          current=$(sed -n 's/^  version "\(.*\)"$/\1/p' Casks/animetro.rb)
+          echo "current $current, latest $latest"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          [ "$latest" != "$current" ] && echo "update=true" >> "$GITHUB_OUTPUT" || true
+      - name: Download and verify the release
+        if: steps.check.outputs.update == 'true'
+        id: sha
+        run: |
+          v=${{ steps.check.outputs.latest }}
+          base="https://github.com/lonlydwolf/animetro/releases/download/v$v"
+          curl -sSfL -o app.zip "$base/Animetro-$v-macOS.zip"
+          sha=$(curl -sSfL "$base/Animetro-$v-macOS.zip.sha256" | cut -d' ' -f1)
+          echo "$sha  app.zip" | shasum -a 256 -c -
+          rm app.zip
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Update the cask and audit it
+        if: steps.check.outputs.update == 'true'
+        run: |
+          v=${{ steps.check.outputs.latest }}
+          sed -i '' -e "s/^  version \".*\"$/  version \"$v\"/" -e "s/^  sha256 \".*\"$/  sha256 \"${{ steps.sha.outputs.sha }}\"/" Casks/animetro.rb
+          git -c user.name=x -c user.email=x@x commit -qam tmp
+          brew tap lonlydwolf/tap "$GITHUB_WORKSPACE"
+          brew trust --cask lonlydwolf/tap/animetro
+          brew style lonlydwolf/tap
+          brew audit --cask --strict --online lonlydwolf/tap/animetro
+          git reset -q --soft HEAD~1
+      - name: Commit
+        if: steps.check.outputs.update == 'true'
+        run: |
+          v=${{ steps.check.outputs.latest }}
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qam "chore: update animetro to $v" -m "Version and SHA-256 from the v$v GitHub release, verified against the downloaded zip and audited with brew audit --strict --online."
+          git push
