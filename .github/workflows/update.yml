@@ -17,10 +17,11 @@ concurrency:
 jobs:
   animetro:
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
       HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check for a newer release
@@ -52,7 +53,8 @@ jobs:
           echo "$sha  app.zip" | shasum -a 256 -c -
           rm app.zip
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-      - name: Update the cask and audit it
+      # Commits pushed with the workflow token don't start other workflows, so this job runs tests.yml's checks itself.
+      - name: Update the cask, audit it and test an install
         if: steps.check.outputs.update == 'true'
         env:
           VERSION: ${{ steps.check.outputs.latest }}
@@ -64,6 +66,10 @@ jobs:
           brew trust --cask lonlydwolf/tap/animetro
           brew style lonlydwolf/tap
           brew audit --cask --strict --online lonlydwolf/tap/animetro
+          brew install --cask lonlydwolf/tap/animetro
+          test -x /Applications/Animetro.app/Contents/MacOS/Animetro
+          brew uninstall --cask --zap animetro
+          test ! -e /Applications/Animetro.app
           git reset -q --soft HEAD~1
       - name: Commit
         if: steps.check.outputs.update == 'true'
@@ -72,5 +78,5 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -qam "chore: update animetro to $VERSION" -m "Version and SHA-256 from the v$VERSION GitHub release, verified against the downloaded zip and audited with brew audit --strict --online."
+          git commit -qam "chore: update animetro to $VERSION" -m "Version and SHA-256 from the v$VERSION GitHub release, verified against the downloaded zip, audited with brew audit --strict --online and test-installed."
           git push
