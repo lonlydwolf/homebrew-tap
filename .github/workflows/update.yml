@@ -1,6 +1,7 @@
 name: Update casks
 
 # Daily, or by hand: pick up a new Animetro release, verify it and update the cask.
+# Release data is untrusted input: it's validated before use and only reaches the shell as quoted env variables.
 on:
   schedule:
     - cron: '17 6 * * *'
@@ -27,26 +28,37 @@ jobs:
         run: |
           tag=$(gh release view -R lonlydwolf/animetro --json tagName --jq .tagName)
           latest=${tag#v}
+          if ! [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::The latest release tag is not a plain version (vX.Y.Z); not updating."
+            exit 1
+          fi
           current=$(sed -n 's/^  version "\(.*\)"$/\1/p' Casks/animetro.rb)
           echo "current $current, latest $latest"
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
-          [ "$latest" != "$current" ] && echo "update=true" >> "$GITHUB_OUTPUT" || true
+          if [ "$latest" != "$current" ]; then echo "update=true" >> "$GITHUB_OUTPUT"; fi
       - name: Download and verify the release
         if: steps.check.outputs.update == 'true'
         id: sha
+        env:
+          VERSION: ${{ steps.check.outputs.latest }}
         run: |
-          v=${{ steps.check.outputs.latest }}
-          base="https://github.com/lonlydwolf/animetro/releases/download/v$v"
-          curl -sSfL -o app.zip "$base/Animetro-$v-macOS.zip"
-          sha=$(curl -sSfL "$base/Animetro-$v-macOS.zip.sha256" | cut -d' ' -f1)
+          base="https://github.com/lonlydwolf/animetro/releases/download/v$VERSION"
+          curl -sSfL -o app.zip "$base/Animetro-$VERSION-macOS.zip"
+          sha=$(curl -sSfL "$base/Animetro-$VERSION-macOS.zip.sha256" | cut -d' ' -f1)
+          if ! [[ "$sha" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::The release's .sha256 file doesn't hold a SHA-256."
+            exit 1
+          fi
           echo "$sha  app.zip" | shasum -a 256 -c -
           rm app.zip
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
       - name: Update the cask and audit it
         if: steps.check.outputs.update == 'true'
+        env:
+          VERSION: ${{ steps.check.outputs.latest }}
+          SHA: ${{ steps.sha.outputs.sha }}
         run: |
-          v=${{ steps.check.outputs.latest }}
-          sed -i '' -e "s/^  version \".*\"$/  version \"$v\"/" -e "s/^  sha256 \".*\"$/  sha256 \"${{ steps.sha.outputs.sha }}\"/" Casks/animetro.rb
+          sed -i '' -e "s/^  version \".*\"$/  version \"$VERSION\"/" -e "s/^  sha256 \".*\"$/  sha256 \"$SHA\"/" Casks/animetro.rb
           git -c user.name=x -c user.email=x@x commit -qam tmp
           brew tap lonlydwolf/tap "$GITHUB_WORKSPACE"
           brew trust --cask lonlydwolf/tap/animetro
@@ -55,9 +67,10 @@ jobs:
           git reset -q --soft HEAD~1
       - name: Commit
         if: steps.check.outputs.update == 'true'
+        env:
+          VERSION: ${{ steps.check.outputs.latest }}
         run: |
-          v=${{ steps.check.outputs.latest }}
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -qam "chore: update animetro to $v" -m "Version and SHA-256 from the v$v GitHub release, verified against the downloaded zip and audited with brew audit --strict --online."
+          git commit -qam "chore: update animetro to $VERSION" -m "Version and SHA-256 from the v$VERSION GitHub release, verified against the downloaded zip and audited with brew audit --strict --online."
           git push
