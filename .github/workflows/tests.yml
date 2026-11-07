@@ -1,0 +1,33 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  cask:
+    name: Style, audit, install
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Tap this checkout and trust its cask
+        run: |
+          brew tap lonlydwolf/tap "$GITHUB_WORKSPACE"
+          brew trust --cask lonlydwolf/tap/animetro
+      - run: brew style lonlydwolf/tap
+      - run: brew audit --cask --strict --online lonlydwolf/tap/animetro
+      - name: Install, check, uninstall with zap
+        run: |
+          brew install --cask lonlydwolf/tap/animetro
+          test -x /Applications/Animetro.app/Contents/MacOS/Animetro
+          lipo -info /Applications/Animetro.app/Contents/MacOS/Animetro
+          brew uninstall --cask --zap animetro
+          test ! -e /Applications/Animetro.app
