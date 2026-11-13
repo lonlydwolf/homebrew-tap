@@ -1,6 +1,6 @@
 cask "animetro" do
-  version "1.1.0"
-  sha256 "55bc0c42d9c1f2a9ccbd511597ac7b8dda7cfdb455ba13d161d1e2d8e2b3e5a1"
+  version "1.2.0"
+  sha256 "0a862ec3625ee1b4d76bc6c562235514034b86e7be3fc42e6a4f2f3b25b9ed75"
 
   url "https://github.com/lonlydwolf/animetro/releases/download/v#{version}/Animetro-#{version}-macOS.zip"
   name "Animetro"
